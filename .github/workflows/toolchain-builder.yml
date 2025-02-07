@@ -1,8 +1,8 @@
 name: Toolchain Builder
 # REGENERATES THE LLVM-MINGW for Alpine Linux with fresh code.
 on:
-  schedule:
-    - cron: '51 10 * * SAT'
+  #schedule:
+    #- cron: '51 10 * * SAT'
     # runs at 10:51 UTC every Saturday
   workflow_dispatch:
     inputs:
