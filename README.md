@@ -3,7 +3,7 @@
 # NANO FOR WINDOWS
 
 [![Xbuild4Windows](https://github.com/taisan11/nano-for-windows/actions/workflows/Xbuild4Windows.yml/badge.svg)](https://github.com/taisan11/nano-for-windows/actions/workflows/Xbuild4Windows.yml) [![SyncNano](https://github.com/taisan11/nano-for-windows/actions/workflows/SyncNano.yml/badge.svg)](https://github.com/taisan11/nano-for-windows/actions/workflows/SyncNano.yml)
-[![Version](https://img.shields.io/github/v/release/okibcn/nano-for-windows)](https://github.com/taisan11/nano-for-windows/releases/latest) [![Github All Releases](https://img.shields.io/github/downloads/okibcn/nano-for-windows/total.svg)](https://github.com/taisan11/nano-for-windows/blob/releases/README.md#installation)
+[![Version](https://img.shields.io/github/v/release/taisan11/nano-for-windows)](https://github.com/taisan11/nano-for-windows/releases/latest) [![Github All Releases](https://img.shields.io/github/downloads/taisan11/nano-for-windows/total.svg)](https://github.com/taisan11/nano-for-windows/blob/releases/README.md#installation)
 
 </div><br/><br/>
 
