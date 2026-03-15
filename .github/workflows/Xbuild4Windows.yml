@@ -23,7 +23,7 @@ on:
         type: choice
         options:
           - "Artifact"
-          - "Release"        
+          - "Release"
 
 jobs:
   ## PRECHECK ##############################################################################
@@ -52,8 +52,14 @@ jobs:
         CHANGES_CURSES="$(git log -1 --pretty=%B)"
         cd ../..
         rm -rf nano
-        LAST_RELEASE=$( wget -qO- https://github.com/$GITHUB_REPOSITORY/releases | sed -nE 's|^.*datetime="([0-9TZ.:-]+).*|\1|p' | head -1 ) \
-          || LAST_RELEASE="2000.01.01T00:00:00Z"
+        LAST_RELEASE_JSON=$(curl -fsSL -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest" 2>/dev/null || true)
+        LAST_RELEASE=""
+        LAST_BUILD=""
+        if [ -n "$LAST_RELEASE_JSON" ]; then
+          LAST_RELEASE=$(echo "$LAST_RELEASE_JSON" | jq -r '.published_at // empty')
+          LAST_BUILD=$(echo "$LAST_RELEASE_JSON" | jq -r '.tag_name // empty')
+        fi
+        [ -z "$LAST_RELEASE" ] && LAST_RELEASE="2000-01-01T00:00:00Z"
         echo "n4win last release DATE:  $LAST_RELEASE"
         if [[ $LAST_NANO > $LAST_RELEASE ]]; then
           echo "NEW NANO SOURCE!!!!"
@@ -80,27 +86,29 @@ jobs:
 
         if [ -f body.txt ]; then
           wget -q "http://git.savannah.gnu.org/gitweb/?p=nano.git;a=shortlog" -O log.html
-          NANO_VERSION=$(grep -m 1 "title=\"tags/" log.html | grep -Eo "v[0-9]+\.[0-9]+" | head -1)
+          NANO_VERSION=$(grep -m 1 "title=\"tags/" log.html | grep -Eo "v[0-9]+(\.[0-9]+){1,2}" | head -1)
           echo "Nano main VERSION: $NANO_VERSION"
           NANO_SUBVER=$( awk '1; /"tag indirect"/{exit}' log.html | grep -c '</tr>')
           echo "Nano SUBVERSION: $NANO_SUBVER"
-          [ $NANO_SUBVER -gt 0 ] && NANO_VERSION="${NANO_VERSION}-${NANO_SUBVER}"
+          [ "$NANO_SUBVER" -gt 0 ] && NANO_VERSION="${NANO_VERSION}-${NANO_SUBVER}"
           echo "Current nano version: ${NANO_VERSION}"
-          LAST_BUILD=$( wget -qO- https://github.com/$GITHUB_REPOSITORY/releases | sed -nE "s|^.*tag/(v[0-9.-]+).*|\1|p" | head -1 ) || echo "FIRST RELEASE!!!!"
-          echo "Last Nano for Windows build: ${LAST_BUILD}"
-          LAST_VERSION=$( echo $LAST_BUILD | awk -F '-' '{print $1}' )
-          echo "Last Nano for Windows main Version: ${LAST_VERSION}"
-          LAST_SUBVER=$(echo $LAST_BUILD | awk -F '[.-]' '{print $3}' )
-          echo "Last Nano for Windows Subversion: ${LAST_SUBVER}"
-          [ $LAST_SUBVER -gt 0 ] && LAST_VERSION="${LAST_VERSION}-${LAST_SUBVER}"
-          echo "Last Nano version: ${LAST_VERSION}"
-          if [ "${NANO_VERSION}" == "${LAST_VERSION}" ]; then
-            # This is a new Windows build based on the same nano build, probably because there is a new curses patch
-            SUBBUILD="$(echo $LAST_BUILD | awk -F . '{print $3}')"
-            ((SUBBUILD=SUBBUILD+1))
-            [ -z $(echo "$LAST_BUILD" |grep '-') ] \
-              && BUILD="${NANO_VERSION}-0.${SUBBUILD}" \
-              || BUILD="${NANO_VERSION}.${SUBBUILD}"
+          [ "$LAST_BUILD" == "null" ] && LAST_BUILD=""
+          echo "Last Nano for Windows build: ${LAST_BUILD:-<none>}"
+          NANO_VERSION_REGEX=$(printf '%s' "$NANO_VERSION" | sed -e 's/[][(){}.^$*+?|\\-]/\\&/g')
+          if [[ "$NANO_VERSION" == *-* ]]; then
+            SUBBUILD_PATTERN="^${NANO_VERSION_REGEX}(\\.([0-9]+))?$"
+            SUBBUILD_SEPARATOR="."
+          else
+            SUBBUILD_PATTERN="^${NANO_VERSION_REGEX}(-0\\.([0-9]+))?$"
+            SUBBUILD_SEPARATOR="-0."
+          fi
+          if [[ "$LAST_BUILD" =~ $SUBBUILD_PATTERN ]]; then
+            PREV_SUBBUILD="${BASH_REMATCH[2]}"
+            if [ -n "$PREV_SUBBUILD" ]; then
+              BUILD="${NANO_VERSION}${SUBBUILD_SEPARATOR}$((PREV_SUBBUILD + 1))"
+            else
+              BUILD="${NANO_VERSION}${SUBBUILD_SEPARATOR}1"
+            fi
           else
             BUILD="${NANO_VERSION}"
           fi
@@ -144,7 +152,7 @@ jobs:
         git config --global --add safe.directory '*'
 
     - name: "📂 Restore LLVM-MinGW Folder"
-      uses: actions/cache@v4
+      uses: actions/cache@v5.0.3
       id: cache-folder
       with:
         key: llvm-folder
@@ -511,7 +519,7 @@ jobs:
           7z a -mx9 -mm=Deflate64 -mmt$(nproc) "$CWD/nano-for-windows_${{matrix.name}}_${{ needs.checks.outputs.build }}.zip" * .nanorc
 
     - name: "👍 Upload Artifact nano-for-windows_${{ matrix.name }}_${{ needs.checks.outputs.build }}.zip"
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.0
       with:
         name: nano-for-windows_${{ matrix.name }}_${{ needs.checks.outputs.build }}
         path: |
@@ -526,10 +534,10 @@ jobs:
         chmod +x /usr/local/bin/oh-my-posh
         wget -q https://github.com/okibcn/miniU/raw/main/Github_Linux/.nanorc -O /etc/nanorc
         wget -q https://github.com/okibcn/miniU/raw/main/Github_Linux/profile.sh -O ~/.zshrc
-        cat ~/.zshrc >> ~/.bashrc 
+        cat ~/.zshrc >> ~/.bashrc
 
     - name: "🐞 Debug session"
-      uses: mxschmitt/action-tmate@v3
+      uses: mxschmitt/action-tmate@v3.23
       if: github.event.inputs.debug_enabled == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -547,12 +555,12 @@ jobs:
         shell: bash
     steps:
     - name: "📬 Receive Packages"
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8.0.1
       with:
         path: ./
 
     - name: "🚮 Recycle Packaging"
-      uses: geekyeggo/delete-artifact@v5
+      uses: GeekyEggo/delete-artifact@v6.0.0
       with:
           name: '*'
 
@@ -563,7 +571,7 @@ jobs:
         echo "${{ needs.checks.outputs.body }}" | base64 -d > body.txt
 
     - name: "👍 Upload nano-for-windows_${{ needs.checks.outputs.build }} as Artifact"
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.0
       if: github.event.inputs.release == 'Artifact'
       with:
         name: nano-for-windows_${{ needs.checks.outputs.build }}
@@ -572,7 +580,7 @@ jobs:
           *.txt
 
     - name: "🎉 Publish Release ${{ needs.checks.outputs.build }}"
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v2.5.1
       # WARNING: before useing this action go to https://github.com/OWNER/REPO/settings/actions
       # and in **Workflow Permissions** section give actions **Read and Write permissions**.
       if: github.event_name != 'workflow_dispatch' || github.event.inputs.release == 'Release'
@@ -583,7 +591,7 @@ jobs:
         tag_name: ${{ needs.checks.outputs.build }}
         body_path: body.txt
         files: |
-          ./*.zip 
+          ./*.zip
           ./hashes.txt
 
 
@@ -600,8 +608,7 @@ jobs:
         sudo cp ~/bash.bashrc /etc/bash.bashrc -f
 
     - name: "🐞 Debug session"
-      uses: mxschmitt/action-tmate@v3
+      uses: mxschmitt/action-tmate@v3.23
       if: github.event.inputs.debug_enabled == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

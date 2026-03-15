@@ -32,7 +32,7 @@ jobs:
         echo "PATH=$HOME/.local/bin:$PATH" >> $GITHUB_ENV
         # this seems to be needed when running in a container (beause of UID mismatch??)
         git config --global --add safe.directory '*'
-        
+
     - name: "🔧 Prepare debug session"
       if: github.event.inputs.debug_enabled == 'true'
       run: |
@@ -41,10 +41,10 @@ jobs:
         chmod +x /usr/local/bin/oh-my-posh
         wget -q https://github.com/okibcn/miniU/raw/main/Github_Linux/.nanorc -O /etc/nanorc
         wget -q https://github.com/okibcn/miniU/raw/main/Github_Linux/profile.sh -O ~/.zshrc
-        cat ~/.zshrc >> ~/.bashrc 
+        cat ~/.zshrc >> ~/.bashrc
 
     - name: "🐞 Debug session"
-      uses: mxschmitt/action-tmate@v3
+      uses: mxschmitt/action-tmate@v3.23
       if: github.event.inputs.debug_enabled == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,10 +56,10 @@ jobs:
         tar xvf llvm-mingw.tar.xz
 
     - name: "🚮 Recycle Cache"
-      uses: snnaplab/delete-branch-cache-action@v1
+      uses: snnaplab/delete-branch-cache-action@v1.0.0
 
     - name: "💾 Save Build Folder"
-      uses: actions/cache@v4
+      uses: actions/cache@v5.0.3
       id: cache-folder
       with:
         key: llvm-folder
@@ -90,7 +90,7 @@ jobs:
         git config --global --add safe.directory '*'
 
     - name: "📂 Load LLVM-MinGW Folder"
-      uses: actions/cache@v4
+      uses: actions/cache@v5.0.3
       id: cache-folder
       with:
         key: llvm-folder
@@ -102,7 +102,7 @@ jobs:
           -H "Accept: application/vnd.github.v3+json" \
           -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           http://github.com/repos/$GITHUB_REPOSITORY/actions/caches
-      
+
     - name: "🔧 Prepare debug session"
       if: github.event.inputs.debug_enabled == 'true'
       run: |
@@ -111,10 +111,10 @@ jobs:
         chmod +x /usr/local/bin/oh-my-posh
         wget -q https://github.com/okibcn/miniU/raw/main/Github_Linux/.nanorc -O /etc/nanorc
         wget -q https://github.com/okibcn/miniU/raw/main/Github_Linux/profile.sh -O ~/.zshrc
-        cat ~/.zshrc >> ~/.bashrc 
+        cat ~/.zshrc >> ~/.bashrc
 
     - name: "🐞 Debug session"
-      uses: mxschmitt/action-tmate@v3
+      uses: mxschmitt/action-tmate@v3.23
       if: github.event.inputs.debug_enabled == 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -133,9 +133,10 @@ jobs:
         apk list -I | sort
         echo ""
         wget -q "http://git.savannah.gnu.org/gitweb/?p=nano.git;a=shortlog" -O log.html
-        VER=$(cat log.html | grep -m 1 "title=\"tags/" | grep -Eo "v[0-9]+\.[0-9]+" | head -1)
+        VER=$(grep -m 1 "title=\"tags/" log.html | grep -Eo "v[0-9]+(\.[0-9]+){1,2}" | head -1)
         SUBVER=$(cat log.html | awk '1; /"tag indirect"/{exit}' | grep -c '</tr>')
-        NANO_VERSION="${VER}-$(SUBVER)"
+        NANO_VERSION="${VER}"
+        [ "$SUBVER" -gt 0 ] && NANO_VERSION="${VER}-${SUBVER}"
         git clone git://git.savannah.gnu.org/nano.git
         cd nano
         git clone https://github.com/Bill-Gray/PDCursesMod.git curses
@@ -397,24 +398,36 @@ jobs:
 
         # Fix for PDCursesMod makefile to be aware of aarch64 in Xcompiling environment:
         echo -e "\n\nPATCH: PDCursesMod makefile to be aware of aarch64 in Xcompiling environment."
-        sed -i.bak '/i686-w64-mingw32/a endif\n  ifdef _a64\n    PREFIX  = aarch64-w64-mingw32-' curses/wincon/Makefile  
-        sed -i 's|AR\s*=\s*|&$(PREFIX)|' curses/wincon/Makefile  
+        sed -i.bak '/i686-w64-mingw32/a endif\n  ifdef _a64\n    PREFIX  = aarch64-w64-mingw32-' curses/wincon/Makefile
+        sed -i 's|AR\s*=\s*|&$(PREFIX)|' curses/wincon/Makefile
         sed -i 's|STRIP\s*=\s*|&$(PREFIX)|' curses/wincon/Makefile
-        _diff  
+        _diff
 
 
         ####                               ####
         ####    BRANDING and VERSIONING    ####
         ####                               ####
 
-        BUILD_VERSION="$(git describe --tags 2>/dev/null | sed "s/.\{10\}$//")"
-        LAST_BUILD_VERSION="$(gh api repos/$GITHUB_REPOSITORY/releases/latest | jq .tag_name -r)" || echo "FIRST RELEASE!!!!"
-        LAST_NANO_VERSION="$(echo $LAST_BUILD_VERSION | awk -F [\.-]  '{print $1"."$2"-"$3}')"  # last version without the subbuild
-        if [ "${BUILD_VERSION}" == "${LAST_NANO_VERSION}" ]; then
-            # This is a new Windows build based on the same nano build, probably because there is a new curses patch
-            SUBBUILD="$(echo $LAST_BUILD_VERSION | awk -F .  '{print $3}')"
-            ((SUBBUILD=SUBBUILD+1))
-            BUILD_VERSION="${BUILD_VERSION}.${SUBBUILD}"
+        BUILD_DESCRIBE="$(git describe --tags --long --match 'v[0-9]*' 2>/dev/null || true)"
+        BUILD_VERSION="$(echo "$BUILD_DESCRIBE" | sed -E 's/-g[0-9a-f]+$//' | sed -E 's/-0$//')"
+        [ -z "$BUILD_VERSION" ] && BUILD_VERSION="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+        [ -z "$BUILD_VERSION" ] && { echo "Unable to determine nano build version."; exit 1; }
+        LAST_BUILD_VERSION="$(gh api repos/$GITHUB_REPOSITORY/releases/latest --jq .tag_name 2>/dev/null || true)"
+        BUILD_VERSION_REGEX=$(printf '%s' "$BUILD_VERSION" | sed -e 's/[][(){}.^$*+?|\\-]/\\&/g')
+        if [[ "$BUILD_VERSION" == *-* ]]; then
+            SUBBUILD_PATTERN="^${BUILD_VERSION_REGEX}(\\.([0-9]+))?$"
+            SUBBUILD_SEPARATOR="."
+        else
+            SUBBUILD_PATTERN="^${BUILD_VERSION_REGEX}(-0\\.([0-9]+))?$"
+            SUBBUILD_SEPARATOR="-0."
+        fi
+        if [[ "$LAST_BUILD_VERSION" =~ $SUBBUILD_PATTERN ]]; then
+            PREV_SUBBUILD="${BASH_REMATCH[2]}"
+            if [ -n "$PREV_SUBBUILD" ]; then
+                BUILD_VERSION="${BUILD_VERSION}${SUBBUILD_SEPARATOR}$((PREV_SUBBUILD + 1))"
+            else
+                BUILD_VERSION="${BUILD_VERSION}${SUBBUILD_SEPARATOR}1"
+            fi
         fi
         cd curses
         CURSES="$(gh api repos/Bill-Gray/PDCursesMod/releases/latest | jq .tag_name -r)"
@@ -495,7 +508,7 @@ jobs:
             echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
 
     - name: "👍 Upload Artifact"
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.0
       with:
         name: nano-for-windows_${{ env.BUILD_VERSION }}
         path: |
